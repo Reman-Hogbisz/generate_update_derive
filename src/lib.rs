@@ -1,10 +1,10 @@
 use proc_macro::{self, TokenStream};
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Ident, Span};
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{parse_macro_input, DeriveInput, FieldsNamed, Meta};
 
-#[proc_macro_derive(CreateUpdate, attributes(update_ignored_fields, sql_path, diesel))]
+#[proc_macro_derive(CreateUpdate, attributes(update_ignored_fields, sql_path, table_name))]
 pub fn create_update(input: TokenStream) -> TokenStream {
     let DeriveInput {
         ident, data, attrs, ..
@@ -20,19 +20,10 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         "derive(CreateUpdate) requires a diesel(table_name = \"...\") attribute (diesel attrs is empty)"
     );
 
-    let table_name_attr = diesel_attrs.into_iter().find(|attr| {
-        let tokens = attr.to_token_stream().into_iter().collect::<Vec<_>>();
-        tokens
-            .iter()
-            .any(|token| token.to_string().contains("table_name"))
-    });
-
-    assert!(
-        table_name_attr.is_some(),
-        "derive(CreateUpdate) requires a diesel(table_name = \"...\") attribute (no table_name attr found)"
-    );
-
-    let table_name_attr = table_name_attr.unwrap(); // Safety: We just checked that it is some
+    let table_name_attr = match attrs.iter().find(|attr| attr.path.is_ident("table_name")) {
+        Some(attr) => attr,
+        None => panic!("derive(CreateUpdate) requires a table_name attribute"),
+    };
 
     let sql_path_attribute = attrs
         .iter()
