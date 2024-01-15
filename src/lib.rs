@@ -10,16 +10,6 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         ident, data, attrs, ..
     } = parse_macro_input!(input);
 
-    let diesel_attrs: Vec<&syn::Attribute> = attrs
-        .iter()
-        .filter(|attr| attr.path.is_ident("diesel"))
-        .collect();
-
-    assert!(
-        !diesel_attrs.is_empty(),
-        "derive(CreateUpdate) requires a diesel(table_name = \"...\") attribute (diesel attrs is empty)"
-    );
-
     let table_name_attr = match attrs.iter().find(|attr| attr.path.is_ident("table_name")) {
         Some(attr) => attr,
         None => panic!("derive(CreateUpdate) requires a table_name attribute"),
