@@ -125,7 +125,7 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         use crate::db_connection::*;
         use diesel::prelude::*;
 
-        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Insertable, AsChangeset, TS)]
+        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Insertable, AsChangeset, TS, Default)]
         #[ts(export)]
         #[diesel(treat_none_as_null = false)]
         #table_name_attr
