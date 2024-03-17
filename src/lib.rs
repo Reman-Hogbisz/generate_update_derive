@@ -4,7 +4,10 @@ use proc_macro2::{Ident, Span};
 use quote::{quote, ToTokens};
 use syn::{parse_macro_input, DeriveInput, FieldsNamed, Meta};
 
-#[proc_macro_derive(CreateUpdate, attributes(update_ignored_fields, sql_path, diesel))]
+#[proc_macro_derive(
+    CreateUpdate,
+    attributes(update_ignored_fields, sql_path, diesel, ts, update_ts_type)
+)]
 pub fn create_update(input: TokenStream) -> TokenStream {
     let DeriveInput {
         ident, data, attrs, ..
@@ -94,28 +97,46 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         _ => panic!("derive(CreateUpdate) only supports named fields"),
     };
 
-    let (idents, types): (Vec<_>, Vec<_>) = fields
+    let fields: Vec<_> = fields
         .iter()
         .filter_map(|f| match f.ident {
-            Some(ref i) => Some((i, &f.ty)),
+            Some(ref i) => Some((i, &f.ty, &f.attrs)),
             None => None,
         })
-        .unzip();
+        .collect();
 
     let mut optional_field_declarations = TokenStream2::default();
 
-    idents
-        .into_iter()
-        .zip(types.into_iter())
-        .for_each(|(field, ftype)| {
-            if update_ignored_field_names.contains(&field.to_string()) {
-                return;
-            }
+    fields.into_iter().for_each(|(field, ftype, attrs)| {
+        if update_ignored_field_names.contains(&field.to_string()) {
+            return;
+        }
 
+        if let Some(attr) = attrs
+            .iter()
+            .find(|attr| attr.path.is_ident("update_ts_type"))
+        {
+            let ts_type = match attr.parse_args() {
+                Ok(Meta::NameValue(nv)) => {
+                    if nv.path.is_ident("type") {
+                        nv.lit
+                    } else {
+                        panic!("update_ts_type must be type = \"...\"")
+                    }
+                }
+                _ => panic!("update_ts_type must be type = \"...\""),
+            };
+
+            optional_field_declarations.extend(quote! {
+                #[ts(type = #ts_type)]
+                pub #field: Option<#ftype>,
+            });
+        } else {
             optional_field_declarations.extend(quote! {
                 pub #field: Option<#ftype>,
             });
-        });
+        }
+    });
 
     let struct_name = Ident::new(&format!("Updatable{}", ident), Span::call_site());
 
