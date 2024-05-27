@@ -10,33 +10,50 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         ident, data, attrs, ..
     } = parse_macro_input!(input);
 
-    let table_name_attr = match attrs.iter().find(|attr| attr.path.is_ident("table_name")) {
-        Some(attr) => attr,
-        None => panic!("derive(CreateUpdate) requires a table_name attribute"),
-    };
+    let mut optional_imports = quote! {};
+    let mut optional_attrs = quote! {};
 
-    let sql_path_attribute = attrs
-        .iter()
-        .find(|attr| attr.path.is_ident("sql_path"))
-        .expect("derive(CreateUpdate) requires a #[sql_path(...)] attribute with the path to the schema from diesel");
-
-    let sql_table = if let syn::Meta::List(list) = sql_path_attribute
-        .parse_meta()
-        .expect("Failed to parse metadata of sql_path attribute")
+    #[cfg(feature = "db")]
     {
-        list.nested.iter().find_map(|nested| {
-            if let syn::NestedMeta::Meta(syn::Meta::Path(path)) = nested {
-                Some(path.clone())
-            } else {
-                None
-            }
-        })
-    } else {
-        None
-    };
+        let table_name_attr = match attrs.iter().find(|attr| attr.path.is_ident("table_name")) {
+            Some(attr) => attr,
+            None => panic!("derive(CreateUpdate) requires a table_name attribute"),
+        };
 
-    if sql_table.is_none() {
-        panic!("derive(CreateUpdate) requires a sql_path attribute");
+        let sql_path_attribute = attrs
+            .iter()
+            .find(|attr| attr.path.is_ident("sql_path"))
+            .expect("derive(CreateUpdate) requires a #[sql_path(...)] attribute with the path to the schema from diesel");
+
+        let sql_table = if let syn::Meta::List(list) = sql_path_attribute
+            .parse_meta()
+            .expect("Failed to parse metadata of sql_path attribute")
+        {
+            list.nested.iter().find_map(|nested| {
+                if let syn::NestedMeta::Meta(syn::Meta::Path(path)) = nested {
+                    Some(path.clone())
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+
+        if sql_table.is_none() {
+            panic!("derive(CreateUpdate) requires a sql_path attribute");
+        }
+
+        optional_attrs.extend(quote! {
+            #[derive(Insertable, AsChangeset)]
+            #[diesel(treat_none_as_null = false)]
+            #table_name_attr
+        });
+
+        optional_imports.extend(quote! {
+            use crate::db_connection::*;
+            use diesel::prelude::*;
+        });
     }
 
     let update_ignored_fields_attr = attrs
@@ -103,13 +120,11 @@ pub fn create_update(input: TokenStream) -> TokenStream {
     let output = quote! {
 
         use crate::util::*;
-        use crate::db_connection::*;
-        use diesel::prelude::*;
+        #optional_imports
 
-        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Insertable, AsChangeset, TS)]
+        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS)]
+        #optional_imports
         #[ts(export)]
-        #[diesel(treat_none_as_null = false)]
-        #table_name_attr
         pub struct #struct_name {
             #optional_field_declarations
         }
