@@ -13,52 +13,69 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         ident, data, attrs, ..
     } = parse_macro_input!(input);
 
-    let diesel_attrs: Vec<&syn::Attribute> = attrs
-        .iter()
-        .filter(|attr| attr.path.is_ident("diesel"))
-        .collect();
+    let mut optional_imports = quote! {};
+    let mut optional_attrs = quote! {};
 
-    assert!(
-        !diesel_attrs.is_empty(),
-        "derive(CreateUpdate) requires a diesel(table_name = \"...\") attribute (diesel attrs is empty)"
-    );
-
-    let table_name_attr = diesel_attrs.into_iter().find(|attr| {
-        let tokens = attr.to_token_stream().into_iter().collect::<Vec<_>>();
-        tokens
-            .iter()
-            .any(|token| token.to_string().contains("table_name"))
-    });
-
-    assert!(
-        table_name_attr.is_some(),
-        "derive(CreateUpdate) requires a diesel(table_name = \"...\") attribute (no table_name attr found)"
-    );
-
-    let table_name_attr = table_name_attr.unwrap(); // Safety: We just checked that it is some
-
-    let sql_path_attribute = attrs
-        .iter()
-        .find(|attr| attr.path.is_ident("sql_path"))
-        .expect("derive(CreateUpdate) requires a #[sql_path(...)] attribute with the path to the schema from diesel");
-
-    let sql_table = if let syn::Meta::List(list) = sql_path_attribute
-        .parse_meta()
-        .expect("Failed to parse metadata of sql_path attribute")
+    #[cfg(feature = "db")]
     {
-        list.nested.iter().find_map(|nested| {
-            if let syn::NestedMeta::Meta(syn::Meta::Path(path)) = nested {
-                Some(path.clone())
-            } else {
-                None
-            }
-        })
-    } else {
-        None
-    };
+        let diesel_attrs: Vec<&syn::Attribute> = attrs
+            .iter()
+            .filter(|attr| attr.path.is_ident("diesel"))
+            .collect();
 
-    if sql_table.is_none() {
-        panic!("derive(CreateUpdate) requires a sql_path attribute");
+        assert!(
+            !diesel_attrs.is_empty(),
+            "derive(CreateUpdate) requires a diesel(table_name = \"...\") attribute (diesel attrs is empty)"
+        );
+
+        let table_name_attr = diesel_attrs.into_iter().find(|attr| {
+            let tokens = attr.to_token_stream().into_iter().collect::<Vec<_>>();
+            tokens
+                .iter()
+                .any(|token| token.to_string().contains("table_name"))
+        });
+
+        assert!(
+            table_name_attr.is_some(),
+            "derive(CreateUpdate) requires a diesel(table_name = \"...\") attribute (no table_name attr found)"
+        );
+
+        let table_name_attr = table_name_attr.unwrap(); // Safety: We just checked that it is some
+
+        let sql_path_attribute = attrs
+            .iter()
+            .find(|attr| attr.path.is_ident("sql_path"))
+            .expect("derive(CreateUpdate) requires a #[sql_path(...)] attribute with the path to the schema from diesel");
+
+        let sql_table = if let syn::Meta::List(list) = sql_path_attribute
+            .parse_meta()
+            .expect("Failed to parse metadata of sql_path attribute")
+        {
+            list.nested.iter().find_map(|nested| {
+                if let syn::NestedMeta::Meta(syn::Meta::Path(path)) = nested {
+                    Some(path.clone())
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+
+        if sql_table.is_none() {
+            panic!("derive(CreateUpdate) requires a sql_path attribute");
+        }
+
+        optional_attrs.extend(quote! {
+            #[derive(Insertable, AsChangeset)]
+            #[diesel(treat_none_as_null = false)]
+            #table_name_attr
+        });
+
+        optional_imports.extend(quote! {
+            use crate::db_connection::*;
+            use diesel::prelude::*;
+        });
     }
 
     let update_ignored_fields_attr = attrs
@@ -143,13 +160,11 @@ pub fn create_update(input: TokenStream) -> TokenStream {
     let output = quote! {
 
         use crate::util::*;
-        use crate::db_connection::*;
-        use diesel::prelude::*;
+        #optional_imports
 
-        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Insertable, AsChangeset, TS, Default)]
+        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS, Default)]
+        #optional_attrs
         #[ts(export)]
-        #[diesel(treat_none_as_null = false)]
-        #table_name_attr
         pub struct #struct_name {
             #optional_field_declarations
         }
