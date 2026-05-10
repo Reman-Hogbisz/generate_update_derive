@@ -2,7 +2,7 @@ use proc_macro::{self, TokenStream};
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Ident, Span};
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, FieldsNamed, Meta};
+use syn::{parse_macro_input, DeriveInput, FieldsNamed, Lit, Meta};
 
 #[proc_macro_derive(CreateUpdate, attributes(update_ignored_fields, sql_path, table_name))]
 pub fn create_update(input: TokenStream) -> TokenStream {
@@ -48,12 +48,14 @@ pub fn create_update(input: TokenStream) -> TokenStream {
             Ok(Meta::List(list)) => list
                 .nested
                 .iter()
-                .map(|nested| match nested {
+                .enumerate()
+                .map(|(index, nested)| match nested {
                     syn::NestedMeta::Meta(Meta::Path(path)) => path
                         .get_ident()
-                        .expect("update_ignored_fields must be a list of identifiers")
+                        .expect(&format!("update_ignored_fields failed to get identifier off path at index {index}"))
                         .to_string(),
-                    _ => panic!("update_ignored_fields must be a list of identifiers"),
+                    syn::NestedMeta::Lit(Lit::Str(s)) => s.value(),
+                    x => panic!("update_ignored_fields must be a list of identifiers or strings"),
                 })
                 .collect(),
             _ => panic!("update_ignored_fields must be a list of identifiers"),
