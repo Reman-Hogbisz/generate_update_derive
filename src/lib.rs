@@ -2,7 +2,30 @@ use proc_macro::{self, TokenStream};
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Ident, Span};
 use quote::{quote, ToTokens};
-use syn::{parse_macro_input, DeriveInput, FieldsNamed, Lit, Meta};
+use syn::{
+    parse_macro_input, punctuated::Punctuated, DeriveInput, FieldsNamed, Lit, Meta, NestedMeta,
+    Token,
+};
+
+fn parse_update_ignored_fields(attr: &syn::Attribute) -> Vec<String> {
+    attr.parse_args_with(Punctuated::<NestedMeta, Token![,]>::parse_terminated)
+        .unwrap_or_else(|err| {
+            panic!("update_ignored_fields failed to parse arguments with error: {err}")
+        })
+        .iter()
+        .enumerate()
+        .map(|(index, nested)| match nested {
+            NestedMeta::Meta(Meta::Path(path)) => path
+                .get_ident()
+                .expect(&format!(
+                    "update_ignored_fields failed to get identifier off path at index {index}"
+                ))
+                .to_string(),
+            NestedMeta::Lit(Lit::Str(s)) => s.value(),
+            _ => panic!("update_ignored_fields must be a list of identifiers or strings"),
+        })
+        .collect()
+}
 
 #[proc_macro_derive(
     CreateUpdate,
@@ -66,22 +89,7 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         .find(|attr| attr.path.is_ident("update_ignored_fields"));
 
     let update_ignored_field_names: Vec<String> = match update_ignored_fields_attr {
-        Some(attr) => match attr.parse_args() {
-            Ok(Meta::List(list)) => list
-                .nested
-                .iter()
-                .enumerate()
-                .map(|(index, nested)| match nested {
-                    syn::NestedMeta::Meta(Meta::Path(path)) => path
-                        .get_ident()
-                        .expect(&format!("update_ignored_fields failed to get identifier off path at index {index}"))
-                        .to_string(),
-                    syn::NestedMeta::Lit(Lit::Str(s)) => s.value(),
-                    x => panic!("update_ignored_fields must be a list of identifiers or strings"),
-                })
-                .collect(),
-            _ => panic!("update_ignored_fields must be a list of identifiers"),
-        },
+        Some(attr) => parse_update_ignored_fields(attr),
         None => vec![
             "created_at".to_string(),
             "updated_at".to_string(),
@@ -157,4 +165,41 @@ pub fn create_update(input: TokenStream) -> TokenStream {
     };
 
     output.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_update_ignored_fields;
+    use syn::parse_quote;
+
+    #[test]
+    fn parses_identifier_list() {
+        let attr: syn::Attribute =
+            parse_quote!(#[update_ignored_fields(post_id, created_at, updated_at)]);
+        assert_eq!(
+            parse_update_ignored_fields(&attr),
+            vec!["post_id", "created_at", "updated_at"]
+        );
+    }
+
+    #[test]
+    fn parses_string_list() {
+        let attr: syn::Attribute = parse_quote!(#[update_ignored_fields("post_id", "created_at")]);
+        assert_eq!(
+            parse_update_ignored_fields(&attr),
+            vec!["post_id", "created_at"]
+        );
+    }
+
+    #[test]
+    fn parses_identifier_individual() {
+        let attr: syn::Attribute = parse_quote!(#[update_ignored_fields(post_id)]);
+        assert_eq!(parse_update_ignored_fields(&attr), vec!["post_id"]);
+    }
+
+    #[test]
+    fn parses_string_individual() {
+        let attr: syn::Attribute = parse_quote!(#[update_ignored_fields("post_id")]);
+        assert_eq!(parse_update_ignored_fields(&attr), vec!["post_id"]);
+    }
 }
