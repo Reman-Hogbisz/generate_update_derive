@@ -1,10 +1,10 @@
 use proc_macro::{self, TokenStream};
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Ident, Span};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{
-    parse_macro_input, punctuated::Punctuated, DeriveInput, FieldsNamed, Lit, Meta, NestedMeta,
-    Token,
+    DeriveInput, FieldsNamed, Lit, Meta, NestedMeta, Token, parse_macro_input,
+    punctuated::Punctuated,
 };
 
 fn parse_update_ignored_fields(attr: &syn::Attribute) -> Vec<String> {
@@ -39,8 +39,7 @@ pub fn create_update(input: TokenStream) -> TokenStream {
     let mut optional_imports = quote! {};
     let mut optional_attrs = quote! {};
 
-    #[cfg(feature = "db")]
-    {
+    if cfg!(feature = "db") {
         let diesel_attrs: Vec<&syn::Attribute> = attrs
             .iter()
             .filter(|attr| attr.path.is_ident("diesel"))
@@ -101,6 +100,13 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         });
     }
 
+    if cfg!(feature = "ts") {
+        optional_attrs.extend(quote! {
+            #[derive(TS)]
+            #[ts(export)]
+        });
+    }
+
     let update_ignored_fields_attr = attrs
         .iter()
         .find(|attr| attr.path.is_ident("update_ignored_fields"));
@@ -139,9 +145,10 @@ pub fn create_update(input: TokenStream) -> TokenStream {
             return;
         }
 
-        if let Some(attr) = attrs
-            .iter()
-            .find(|attr| attr.path.is_ident("update_ts_type"))
+        if cfg!(feature = "ts")
+            && let Some(attr) = attrs
+                .iter()
+                .find(|attr| attr.path.is_ident("update_ts_type"))
         {
             let ts_type = match attr.parse_args() {
                 Ok(Meta::NameValue(nv)) => {
@@ -172,9 +179,8 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         use crate::util::*;
         #optional_imports
 
-        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, TS, Default)]
+        #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
         #optional_attrs
-        #[ts(export)]
         pub struct #struct_name {
             #optional_field_declarations
         }
