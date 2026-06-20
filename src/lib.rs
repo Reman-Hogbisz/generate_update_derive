@@ -107,6 +107,12 @@ pub fn create_update(input: TokenStream) -> TokenStream {
         });
     }
 
+    if cfg!(feature = "utoipa") {
+        optional_attrs.extend(quote! {
+            #[derive(utoipa::ToSchema)]
+        });
+    }
+
     let update_ignored_fields_attr = attrs
         .iter()
         .find(|attr| attr.path.is_ident("update_ignored_fields"));
